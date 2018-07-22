@@ -1,0 +1,188 @@
+#!/bin/bash
+
+set -e
+
+. ./CommonHandler
+
+
+#########################################
+# Copyright owner : Subash Kunjupillai  #  
+# e-mail : subashk1988@yahoo.com        #
+# Date : 16-Oct-2016                    #
+#########################################
+DATE=$(date +"%Y-%m-%d")
+LOG_DIR="/var/log/hadoop"
+LOG_FILE="$LOG_DIR/HadoopManager_$DATE.log"
+
+#exec > >(tee -i $LOG_FILE)
+#exec 2>&1
+
+#########################################
+# Installs	                        #
+#                                       #       
+#########################################
+install(){
+
+
+	# Checks whether this script is run as a root user
+	if [ $(whoami) != "root" ];then
+		echo -e "Run this script as root user... Exiting!!!"
+		exit 1
+	fi
+
+	sudo mkdir -p -m 777 "$LOG_DIR"
+        touch $LOG_FILE
+	
+	# Checks if Hadoop is installed already
+	if [ -d /usr/local/hadoop ]; then 
+		logit -e "Hadoop is already installed.. Exiting!!!"; exit 1
+	fi
+
+	logit -i "Installing Hadoop in Stand-alone mode.."
+
+	# Checks whether java is installed already if not, java 8 will be installed
+	install_java
+
+	# Adding user, group and user in to sudo group
+	passwordFile="/etc/passwd"
+	if grep -q "hduser" "$passwordFile" ; then
+	        logit -i "User 'hduser' already exists..."
+		delete_user hduser
+	fi
+	create_user hduser hadoop
+
+	# Generates SSH Keys
+	generate_ssh_keys hduser
+
+	# Downloads & untar Hadoop Tar
+	download_installer "hadoop"
+
+	sudo chown -R hduser:hadoop /usr/local/hadoop
+
+	# Creating data directories for hadoop
+	create_dir "/hadoop/hdfs/data/"
+
+	# Providing required permission for data directory
+	sudo chown hduser:hadoop /hadoop/hdfs/data/
+	sudo chmod 750 /hadoop/hdfs/data/
+
+	# Setting environment variables
+	logit -i "Updating environment variables..." 
+	su - hduser -c "echo 'export HADOOP_HOME=/usr/local/hadoop' > ~/.bashrc"
+	su - hduser -c "echo 'export PATH=$PATH:$HADOOP_HOME/bin' >> ~/.bashrc"
+	su - hduser -c "echo 'export JAVA_HOME=/usr/lib/jvm/java-8-oracle/' >> ~/.bashrc"
+	su - hduser -c "echo 'export HADOOP_HOME=/usr/local/hadoop' >> ~/.bashrc"
+	su - hduser -c "echo 'export PATH=$PATH:$HADOOP_HOME/bin' >> ~/.bashrc"
+	su - hduser -c "echo 'export PATH=$PATH:$HADOOP_HOME/sbin' >> ~/.bashrc"
+
+	# Updating core-site.xml
+	logit -i "Updating core-site.xml" 
+	if ! grep -q 'hdfs://localhost:9000' /usr/local/hadoop/etc/hadoop/core-site.xml; then
+		sed -i'' '/<configuration>/a <property> \n\t<name>fs.defaultFS</name>\n\t<value>hdfs://localhost:9000</value>\n</property>' /usr/local/hadoop/etc/hadoop/core-site.xml
+		sed -i'' '/<configuration>/a <property> \n\t<name>hadoop.tmp.dir</name>\n\t<value>/hadoop/hdfs/data</value>\n</property>' /usr/local/hadoop/etc/hadoop/core-site.xml
+	fi
+
+	# Updating hdfs-site.xml
+	logit -i "Updating hdfs-site.xml" 
+	if ! grep -q 'replication' /usr/local/hadoop/etc/hadoop/hdfs-site.xml; then
+		sed -i'' '/<configuration>/a <property> \n\t<name>dfs.replication</name>\n\t<value>1</value>\n</property>' /usr/local/hadoop/etc/hadoop/hdfs-site.xml
+	fi
+
+	# Upating mapred-site.xml
+	logit -i "Updating mapred-site.xml" 
+	if [ -f /usr/local/hadoop/etc/hadoop/mapred-site.xml ]; then
+		cp /usr/local/hadoop/etc/hadoop/mapred-site.xml.template /usr/local/hadoop/etc/hadoop/mapred-site.xml
+		sed -i'' '/<configuration>/a <property> \n\t<name>mapred.job.tracker</name>\n\t<value>localhost:54311</value>\n</property>' /usr/local/hadoop/etc/hadoop/mapred-site.xml
+	fi
+
+	xhost + 2>&1 >>$LOG_FILE
+	logit -i "Formatting namenode... It may take sometime, please wait..." 
+	su - hduser -c "ssh-keyscan -t rsa localhost >> ~/.ssh/known_hosts" >>$LOG_FILE
+	su - hduser -c "ssh-keyscan -t rsa 0.0.0.0 >> ~/.ssh/known_hosts" >>$LOG_FILE
+	su - hduser -c "/usr/local/hadoop/bin/hdfs namenode -format" >>$LOG_FILE
+
+	#Starting hadoop and mapreduce services
+	start_service
+
+	logit -i "Installation Completed Successfully.. Welcome to Big Data World!!!"
+}
+
+
+# Stop service
+stop_service(){
+	logit -i "Stopping Yarn services..."  
+	sudo su - hduser -c "/usr/local/hadoop/sbin/stop-yarn.sh" >> $LOG_FILE
+ 	logit -i "Stopping Hadoop services..." 
+	sudo su - hduser -c "/usr/local/hadoop/sbin/stop-dfs.sh" >> $LOG_FILE
+}
+
+# Start service
+start_service(){
+	logit -i "Starting hadoop services..." 
+	sudo su - hduser -c "/usr/local/hadoop/sbin/start-dfs.sh" >> $LOG_FILE 
+	logit -i "Starting YARN services..." 
+	sudo su - hduser -c "/usr/local/hadoop/sbin/start-yarn.sh" >> $LOG_FILE
+}
+
+# Checks Status
+service_status(){
+	flag=-1
+	if sudo jps | grep -iqE "NameNode|DataNode|SecondaryNameNode"; then
+		logit -i "HDFS services are running!"
+		if sudo jps | grep -iqE "NodeManager|ResourceManager"; then
+        	        logit -i "YARN services are running!"
+	                flag=0
+	        else
+        	        logit -i "YARN services are stopped!!!"
+                	flag=1
+	        fi
+	else
+		logit -i "HDFS and YARN services are stopped!!!"
+		flag=1
+	fi
+	return $flag
+}
+
+# Uninstall
+uninstall(){
+	
+	if [ -d /usr/local/hadoop ]; then
+		service_status
+		[ "$?" -eq 0 ] && stop_service;
+		rm -rf /usr/local/hadoop
+		rm -rf /hadoop/hdfs/data/
+	else
+		logit -i "Already uninstalled!"
+	fi
+}
+
+usage(){
+	echo "Usage :	HadoopManager <i|u|s [start|stop]>"
+	echo "i :	install"
+	echo "u :	uninstall"
+	echo "s : 	Starts or stop hadoop service"
+}
+
+# Main
+if [ $# -eq 0 ]; then
+	usage
+	exit 1
+fi
+
+while getopts ius: args
+do
+	case $args in
+	i) install;;
+	u) uninstall;;
+	s) if [[ "$2" == "start" ]]; then
+		start_service
+	   elif [[ "$2" == "stop" ]]; then
+		stop_service
+	   elif [[ "$2" == "status" ]]; then
+		service_status
+	   fi;;
+	* ) usage
+	   logit -i "Invalid argument!!!"
+	   exit 1;;
+	esac
+done

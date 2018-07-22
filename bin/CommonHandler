@@ -1,0 +1,169 @@
+#!/bin/bash
+
+set -e
+
+#########################################
+# Copyright owner : Subash Kunjupillai  #  
+# e-mail : subashk1988@yahoo.com        #
+# Date : 16-Oct-2016                    #
+#########################################
+
+#########################################
+# It logs the provided message with 	#
+# date and loglevel			#	
+# 					#	
+# Usage : logit <-i|-w|-e> <message>	#
+#		-i --> INFO		#
+# 		-w --> WARN		#
+# 		-e --> ERROR 		#
+#########################################
+logit() 
+{
+	if [[ "$1" == "-i" ]];then
+		level="INFO"
+	elif [[ "$1" == "-w" ]]; then
+		level="WARN"
+	elif [[ "$1" == "-e" ]];then
+		level="ERROR"
+	fi
+	echo "`date`:[$level]: $2" 
+}
+
+#########################################
+# Generates ssh key for given user      #
+#                                       #       
+# Usage : generate_ssh_keys <user>    	#
+#########################################
+generate_ssh_keys(){
+user=$1
+logit -i "Generating SSH keys for $user..." 
+su - $user -c "ssh-keygen -t rsa -f /home/$user/.ssh/id_rsa -q -P ''" >>$LOG_FILE
+logit -i "Updating authorized keys..." 
+su - $user -c "cat /home/$user/.ssh/id_rsa.pub >> /home/$user/.ssh/authorized_keys" >>$LOG_FILE
+}
+
+
+#########################################################
+# Downloads and extracts a software for	the provided	#
+# version.						#
+#                                       		#       
+# Usage : download_installer <software> <version>    	#
+#########################################################
+download_installer(){
+software=$1
+version=$2
+
+# Downloads from the link generated above
+if [ "$software" == "hadoop"  ]; then
+	tar=$(curl -s https://archive.apache.org/dist/hadoop/common/stable/ | awk -F "href=\"" '{print $2}' | awk -F "\">" '{print $1}' | grep tar | grep -Ev "src|asc|md5|mds")
+	softwareVersion=$(echo "$tar" | awk -F ".tar.gz" '{print $1}')
+	if [ -f "/var/tmp/$tar" ]; then
+		logit -i "$software tar already available"
+	else
+		logit -i "Downloading $software Tar.. It may take some time based on your internet bandwidth" ;
+        	wget -r -l1 -np 'https://archive.apache.org/dist/hadoop/common/stable/' -P /var/tmp/ -A "$tar"
+		mv /var/tmp/archive.apache.org/dist/hadoop/common/stable/$tar /var/tmp/
+	fi
+elif [ "$software" == "hbase" ]; then
+	echo "Inside HBase"
+	tar=$(curl -s https://www-us.apache.org/dist/hbase/stable/ | awk -F "href=\"" '{print $2}' | awk -F "\">" '{print $1}' | grep tar | grep -Ev "src|asc|md5|mds|sha")
+	softwareVersion=$(echo "$tar" | awk -F "-bin.tar.gz" '{print $1}')
+	if [ -f "/var/tmp/$tar" ]; then
+                logit -i "$software tar already available"
+        else
+                logit -i "Downloading $software Tar.. It may take some time based on your internet bandwidth" ;
+                wget -r -l1 -np 'https://www-us.apache.org/dist/hbase/stable/' -P /var/tmp/ -A "$tar"
+                mv /var/tmp/www-us.apache.org/dist/hbase/stable/$tar /var/tmp/
+        fi
+else
+        echo "TO-DO"
+fi	
+
+
+if [ ! -d /var/tmp/$software ]; then
+	tar xf "/var/tmp/$tar" -C /usr/local/
+	mv "/usr/local/$softwareVersion" "/usr/local/$software"
+	sudo chown -R hduser:hadoop /usr/local/$software
+fi
+}
+
+#########################################
+# Checks and creates directory if not   #
+# not available				#       
+#                                       #       
+# Usage : create_dir <dir>    		#
+#########################################
+create_dir(){
+dir=$1
+#Creating data directories for hadoop
+if [ -d $dir ]; then
+	rm -rf $dir
+fi
+logit -i "Creating directory '$dir'" 
+sudo mkdir -p /hadoop/hdfs/data/
+}
+
+
+#########################################
+# Installs java 			#
+#                                       #       
+#########################################
+install_java(){
+command -v java >/dev/null 2>&1 || { echo "[INFO] : Installing Java... It may take some time based on your internet bandwidth"  ;  sudo apt-add-repository ppa:webupd8team/java ; sudo apt-get update ; apt-get -qq install -y oracle-java8-installer 2>&1 ; }
+}
+
+#########################################
+# Deletes user				#
+#                                       #       
+# Usage : delete_user <username> 	#
+#########################################
+delete_user(){
+user=$1
+userdel -r $user >/dev/null 2>&1
+if [ $? -ne 0 ]; then
+	logit -e "$user is running few processes.. Kill them and run this script again.." 
+        exit 1
+fi
+}
+
+check_user_existence(){
+user=$1
+passwordFile="/etc/passwd"
+if grep -q "$user" "$passwordFile" ; then
+        logit -i "User $user already exists..."
+	return 2
+fi
+return 0
+}
+
+#########################################
+# Creats user and group                 #
+#                                       #       
+# Usage : create_user <user> <group>    #
+#########################################
+create_user(){
+user=$1
+group=$2
+group_file="/etc/group"
+if grep -q "$group" "$group_file" ; then
+	logit -i "Group "$group" already exists.."
+	if id -nG "$user" | grep -qw "$group"; then
+	    logit -i "$user belongs to $group"
+	else
+	    logit -i "$user does not belong to $group"
+	    logit -i "Creating user '$user' ..." 
+            sudo adduser --disabled-password --gecos "" $user --ingroup $group >>$LOG_FILE
+            sudo adduser $user sudo >>$LOG_FILE
+            logit -i "Password for '$user' is '$user'" 
+            echo $user:$user  | chpasswd
+	fi
+else
+	logit -i "Creating group '$group' ..." 
+	sudo addgroup $group >>$LOG_FILE
+	logit -i "Creating user '$user' ..." 
+	sudo adduser --disabled-password --gecos "" $user --ingroup $group >>$LOG_FILE
+	sudo adduser $user sudo >>$LOG_FILE
+	logit -i "Password for '$user' is '$user'" 
+	echo $user:$user  | chpasswd
+fi
+}

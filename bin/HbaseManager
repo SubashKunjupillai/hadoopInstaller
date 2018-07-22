@@ -1,0 +1,167 @@
+#!/bin/bash
+
+set -e
+
+. ./CommonHandler
+
+
+#########################################
+# Copyright owner : Subash Kunjupillai  #  
+# e-mail : subashk1988@yahoo.com        #
+# Date : 16-Oct-2016                    #
+#########################################
+DATE=$(date +"%Y-%m-%d")
+LOG_DIR="/var/log/hbase"
+LOG_FILE="$LOG_DIR/HbaseManager_$DATE.log"
+
+sudo mkdir -p -m 777 "$LOG_DIR"
+touch $LOG_FILE
+#exec > >(tee -i $LOG_FILE)
+#exec 2>&1
+
+#########################################
+# Installs	                        #
+#                                       #       
+#########################################
+install(){
+
+
+	# Checks whether this script is run as a root user
+	if [ $(whoami) != "root" ];then
+		echo -e "Run this script as root user... Exiting!!!"
+		exit 1
+	fi
+	
+	# Checks if HBase is installed already
+	[ -d /usr/local/hbase ] && { logit -e "HBase is already installed.. Exiting!!!"; exit 1 ;}
+
+	logit -i "Installing HBase in Stand-alone mode.."
+
+	# Checks whether java is installed already if not, java 8 will be installed
+	#install_java
+
+	# Adding user, group and user in to sudo group
+	passwordFile="/etc/passwd"
+	if grep -q "hduser" "$passwordFile" ; then
+	        logit -i "User 'hduser' already exists..."
+	else 
+		create_user hduser hadoop
+		# Generates SSH Keys
+		generate_ssh_keys hduser
+	fi
+
+	# Downloads & untar Hadoop Tar
+	download_installer "hbase"
+
+	# Updating environment variables
+	logit -i "Updating environment variables"
+	su - hduser -c "echo 'export HBASE_REGIONSERVERS=/usr/local/hbase/conf/regionservers' >> /usr/local/hbase/conf/hbase-env.sh"
+	su - hduser -c "echo 'export HBASE_MANAGES_ZK=true' >> /usr/local/hbase/conf/hbase-env.sh"
+
+	logit -i "Checking environment variables..."
+#	grep -c "/hbase/" /home/hduser/.bashrc >/dev/null 2>&1
+	if grep -q "hbase" /home/hduser/.bashrc ; then
+        	logit -i "Environment variable is already set.. Skipping this step!"
+	else
+		logit -i "Updating environment variables.."
+        	su - hduser -c "echo 'export HBASE_HOME=/usr/local/hbase/' >> /home/hduser/.bashrc"
+	        su - hduser -c "echo 'export PATH=$PATH:$HBASE_HOME/bin' >> /home/hduser/.bashrc"
+	fi
+
+	# Updating hbase configuration to run hbase in pseudo distributed mode
+	logit -i "Updating hbase configuration"
+	su - hduser -c "sed -i'' '/<configuration>/a \n<property>\n\t<name>hbase.rootdir</name>\n\t<value>hdfs://localhost:9000/hbase</value>\n</property>' /usr/local/hbase/conf/hbase-site.xml"
+	su - hduser -c "sed -i'' '/<configuration>/a \n<property>\n\t<name>hbase.cluster.distributed</name>\n\t<value>true</value>\n</property>' /usr/local/hbase/conf/hbase-site.xml"
+	su - hduser -c "sed -i'' '/<configuration>/a \n<property>\n\t<name>hbase.zookeeper.quorum</name>\n\t<value>localhost</value>\n</property>' /usr/local/hbase/conf/hbase-site.xml"
+	su - hduser -c "sed -i'' '/<configuration>/a \n<property>\n\t<name>dfs.replication</name>\n\t<value>1</value>\n</property>' /usr/local/hbase/conf/hbase-site.xml"
+	su - hduser -c "sed -i'' '/<configuration>/a \n<property>\n\t<name>hbase.zookeeper.property.clientPort</name>\n\t<value>2181</value>\n</property>' /usr/local/hbase/conf/hbase-site.xml"
+	su - hduser -c "sed -i'' '/<configuration>/a \n<property>\n\t<name>hbase.zookeeper.property.dataDir</name>\n\t<value>/home/hduser/hbase/zookeeper</value>\n</property>' /usr/local/hbase/conf/hbase-site.xml"
+
+
+	logit -i "HBase installed and configured successfully!!!"	
+	if [ -z "$(jps | grep 'DataNode')" ]; then
+        	logit -e "Start Hadoop services, before starting Hbase services... Exiting!!!"
+	else
+        	logit -i "Starting hbase services..."
+        	su - hduser -c "/usr/local/hbase/bin/start-hbase.sh"
+	fi
+}
+
+
+# Stop service
+stop_service(){
+	logit -i "Stopping HBase services..."  
+	su - hduser -c "/usr/local/hbase/bin/stop-hbase.sh"
+}
+
+# Start service
+start_service(){
+	if [ -z "$(jps | grep 'DataNode')" ]; then
+                logit -e "Start Hadoop services, before starting Hbase services... Exiting!!!"; exit 1;
+        else
+                logit -i "Starting hbase services..." 
+                su - hduser -c "/usr/local/hbase/bin/start-hbase.sh" 
+        fi
+}
+
+# Checks Status
+service_status(){
+	flag=-1
+	if sudo jps | grep -iqE "NameNode|DataNode|SecondaryNameNode"; then
+		logit -i "HDFS services are running!"
+		if sudo jps | grep -iqE "NodeManager|ResourceManager"; then
+        	        logit -i "YARN services are running!"
+	                flag=0
+	        else
+        	        logit -i "YARN services are stopped!!!"
+                	flag=1
+	        fi
+	else
+		logit -i "HDFS and YARN services are stopped!!!"
+		flag=1
+	fi
+	return $flag
+}
+
+# Uninstall
+uninstall(){
+	
+	if [ -d /usr/local/hbase ]; then
+		service_status
+		[ "$?" -eq 0 ] && stop_service;
+		rm -rf /usr/local/hbase
+	else
+		logit -i "No HBase found to uninstall!"
+	fi
+}
+
+usage(){
+	echo "Usage :	HBaseManager <i|u|s [start|stop]>"
+	echo "i :	install"
+	echo "u :	uninstall"
+	echo "s : 	Starts or stop hbase service"
+}
+
+# Main
+if [ $# -eq 0 ]; then
+	usage
+	exit 1
+fi
+
+while getopts ius: args
+do
+	case $args in
+	i) install;;
+	u) uninstall;;
+	s) if [[ "$2" == "start" ]]; then
+		start_service
+	   elif [[ "$2" == "stop" ]]; then
+		stop_service
+	   elif [[ "$2" == "status" ]]; then
+		service_status
+	   fi;;
+	* ) usage
+	   logit -i "Invalid argument!!!"
+	   exit 1;;
+	esac
+done
