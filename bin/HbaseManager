@@ -59,7 +59,7 @@ install(){
 	su - hduser -c "echo 'export HBASE_MANAGES_ZK=true' >> /usr/local/hbase/conf/hbase-env.sh"
 
 	logit -i "Checking environment variables..."
-	if grep -q "HBASE" /etc/environment ; then
+	if grep -q "hbase" /etc/environment ; then
         	logit -i "Environment variable is already set.. Skipping this step!"
 	else
 		logit -i "Updating environment variables.."
@@ -72,12 +72,12 @@ install(){
 
 	# Updating hbase configuration to run hbase in pseudo distributed mode
 	logit -i "Updating hbase configuration"
-	su - hduser -c "sed -i'' '/<configuration>/a \n<property>\n\t<name>hbase.rootdir</name>\n\t<value>hdfs://localhost:9000/hbase</value>\n</property>' /usr/local/hbase/conf/hbase-site.xml"
-	su - hduser -c "sed -i'' '/<configuration>/a \n<property>\n\t<name>hbase.cluster.distributed</name>\n\t<value>true</value>\n</property>' /usr/local/hbase/conf/hbase-site.xml"
-	su - hduser -c "sed -i'' '/<configuration>/a \n<property>\n\t<name>hbase.zookeeper.quorum</name>\n\t<value>localhost</value>\n</property>' /usr/local/hbase/conf/hbase-site.xml"
-	su - hduser -c "sed -i'' '/<configuration>/a \n<property>\n\t<name>dfs.replication</name>\n\t<value>1</value>\n</property>' /usr/local/hbase/conf/hbase-site.xml"
-	su - hduser -c "sed -i'' '/<configuration>/a \n<property>\n\t<name>hbase.zookeeper.property.clientPort</name>\n\t<value>2181</value>\n</property>' /usr/local/hbase/conf/hbase-site.xml"
-	su - hduser -c "sed -i'' '/<configuration>/a \n<property>\n\t<name>hbase.zookeeper.property.dataDir</name>\n\t<value>/home/hduser/hbase/zookeeper</value>\n</property>' /usr/local/hbase/conf/hbase-site.xml"
+	su - hduser -c "sed -i'' '/<configuration>/a <property>\n\t<name>hbase.rootdir</name>\n\t<value>hdfs://localhost:9000/hbase</value>\n</property>\n' /usr/local/hbase/conf/hbase-site.xml"
+	su - hduser -c "sed -i'' '/<configuration>/a <property>\n\t<name>hbase.cluster.distributed</name>\n\t<value>true</value>\n</property>\n' /usr/local/hbase/conf/hbase-site.xml"
+	su - hduser -c "sed -i'' '/<configuration>/a <property>\n\t<name>hbase.zookeeper.quorum</name>\n\t<value>localhost</value>\n</property>\n' /usr/local/hbase/conf/hbase-site.xml"
+	su - hduser -c "sed -i'' '/<configuration>/a <property>\n\t<name>dfs.replication</name>\n\t<value>1</value>\n</property>\n' /usr/local/hbase/conf/hbase-site.xml"
+	su - hduser -c "sed -i'' '/<configuration>/a <property>\n\t<name>hbase.zookeeper.property.clientPort</name>\n\t<value>2181</value>\n</property>\n' /usr/local/hbase/conf/hbase-site.xml"
+	su - hduser -c "sed -i'' '/<configuration>/a <property>\n\t<name>hbase.zookeeper.property.dataDir</name>\n\t<value>/home/hduser/hbase/zookeeper</value>\n</property>\n' /usr/local/hbase/conf/hbase-site.xml"
 
 
 	logit -i "HBase installed and configured successfully!!!"	
@@ -122,7 +122,6 @@ service_status(){
 		logit -i "HDFS and YARN services are stopped!!!"
 		flag=1
 	fi
-	return $flag
 }
 
 # Uninstall
@@ -130,7 +129,7 @@ uninstall(){
 	
 	if [ -d /usr/local/hbase ]; then
 		service_status
-		[ "$?" -eq 0 ] && stop_service;
+		[ "$flag" -eq 0 ] && stop_service;
 		rm -rf /usr/local/hbase
 	else
 		logit -i "No HBase found to uninstall!"
