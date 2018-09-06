@@ -59,13 +59,15 @@ install(){
 	su - hduser -c "echo 'export HBASE_MANAGES_ZK=true' >> /usr/local/hbase/conf/hbase-env.sh"
 
 	logit -i "Checking environment variables..."
-#	grep -c "/hbase/" /home/hduser/.bashrc >/dev/null 2>&1
-	if grep -q "hbase" /home/hduser/.bashrc ; then
+	if grep -q "HBASE" /etc/environment ; then
         	logit -i "Environment variable is already set.. Skipping this step!"
 	else
 		logit -i "Updating environment variables.."
-        	su - hduser -c "echo 'export HBASE_HOME=/usr/local/hbase/' >> /home/hduser/.bashrc"
-	        su - hduser -c "echo 'export PATH=$PATH:$HBASE_HOME/bin' >> /home/hduser/.bashrc"
+		EXISTING_PATH=$(cat /etc/environment | grep "PATH" | sed 's/"//g' | awk -F "=" '{print $2}')
+	        sed -i '$ d' /etc/environment
+        	echo 'HBASE_HOME=/usr/local/hbase/' >> /etc/environment
+        	echo PATH=$EXISTING_PATH:'$HBASE_HOME'/bin >> /etc/environment
+        	source /etc/environment
 	fi
 
 	# Updating hbase configuration to run hbase in pseudo distributed mode

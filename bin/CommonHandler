@@ -65,7 +65,6 @@ if [ "$software" == "hadoop"  ]; then
 		mv /var/tmp/archive.apache.org/dist/hadoop/common/stable/$tar /var/tmp/
 	fi
 elif [ "$software" == "hbase" ]; then
-	echo "Inside HBase"
 	tar=$(curl -s https://www-us.apache.org/dist/hbase/stable/ | awk -F "href=\"" '{print $2}' | awk -F "\">" '{print $1}' | grep tar | grep -Ev "src|asc|md5|mds|sha")
 	softwareVersion=$(echo "$tar" | awk -F "-bin.tar.gz" '{print $1}')
 	if [ -f "/var/tmp/$tar" ]; then
