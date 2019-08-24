@@ -55,7 +55,7 @@ version=$2
 
 # Downloads from the link generated above
 if [ "$software" == "hadoop"  ]; then
-	tar=$(curl -s https://archive.apache.org/dist/hadoop/common/stable/ | awk -F "href=\"" '{print $2}' | awk -F "\">" '{print $1}' | grep tar | grep -Ev "src|asc|md5|mds")
+	tar=$(curl -s https://archive.apache.org/dist/hadoop/common/stable/ | awk -F "href=\"" '{print $2}' | awk -F "\">" '{print $1}' | grep tar | grep -Ev "src|asc|md5|mds|site")
 	softwareVersion=$(echo "$tar" | awk -F ".tar.gz" '{print $1}')
 	if [ -f "/var/tmp/$tar" ]; then
 		logit -i "$software tar already available"
@@ -108,7 +108,7 @@ sudo mkdir -p /hadoop/hdfs/data/
 #                                       #       
 #########################################
 install_java(){
-command -v java >/dev/null 2>&1 || { echo "[INFO] : Installing Java... It may take some time based on your internet bandwidth"  ;  sudo apt-add-repository ppa:webupd8team/java ; sudo apt-get update ; apt-get -qq install -y oracle-java8-installer 2>&1 ; }
+command -v java >/dev/null 2>&1 || { echo "[INFO] : Installing Java... It may take some time based on your internet bandwidth"  ; sudo apt-get update ; sudo apt-get install openjdk-8-jdk 2>&1 ; } 
 }
 
 #########################################
@@ -166,3 +166,27 @@ else
 	echo $user:$user  | chpasswd
 fi
 }
+
+#########################################
+#					#
+# Checks and installs curl		#
+#					#
+#########################################
+
+check_install_curl(){
+	logit -i "Checking and installing 'curl'"
+	sudo apt-get install -y curl
+}
+
+
+#########################################
+#                                       #
+# Checks and installs ssh               #
+#                                       #
+#########################################
+
+check_install_ssh(){
+        logit -i "Checking and installing 'ssh'"
+        sudo apt-get install -y openssh-server
+}
+
