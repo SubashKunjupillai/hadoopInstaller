@@ -175,7 +175,10 @@ fi
 
 check_install_curl(){
 	logit -i "Checking and installing 'curl'"
-	sudo apt-get install -y curl
+	curl_status=$(dpkg -l | grep -w curl)
+	if [ -z "$curl_status" ]; then
+		sudo apt-get install -y curl
+	fi
 }
 
 
@@ -187,6 +190,9 @@ check_install_curl(){
 
 check_install_ssh(){
         logit -i "Checking and installing 'ssh'"
-        sudo apt-get install -y openssh-server
+	ssh_status=$(dpkg -l | grep -w openssh-server)
+        if [ -z "$ssh_status" ]; then
+        	sudo apt-get install -y openssh-server
+	fi
 }
 
